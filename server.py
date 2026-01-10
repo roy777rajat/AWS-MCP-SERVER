@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
@@ -39,7 +39,7 @@ def write_audit_log(action: str, details: Any):
             Body=json.dumps(log)
         )
     except Exception:
-        pass  # Do not break tool execution if logging fails
+        pass
 
 
 def convert_datetimes(obj):
@@ -54,13 +54,13 @@ def convert_datetimes(obj):
         return obj
 
 
-# ---------------
-# MCP models
-# ---------------
+# ----------------------
+# MCP Models
+# ----------------------
 class MCPRequest(BaseModel):
     jsonrpc: str = "2.0"
     id: Optional[Any] = None
-    method: str
+    method: Optional[str] = None
     params: Optional[Dict[str, Any]] = {}
 
 
@@ -70,7 +70,7 @@ class MCPToolCallParams(BaseModel):
 
 
 # ----------------------
-# FastAPI app
+# FastAPI App
 # ----------------------
 app = FastAPI()
 
@@ -93,24 +93,24 @@ async def root():
     return {"status": "ok", "mcp": "server running"}
 
 
-# ---------------
-# MCP tools definition
-# ---------------
-def get_mcp_tools_definition() -> List[Dict[str, Any]]:
+# ----------------------
+# MCP Tools Definition
+# ----------------------
+def get_mcp_tools_definition():
     return [
         {
             "name": "list_ec2_instances",
-            "description": "List all EC2 instances in the configured region.",
+            "description": "List all EC2 instances.",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "create_ec2_instance",
-            "description": "Create a t2.micro EC2 instance with a default AMI.",
+            "description": "Create a t2.micro EC2 instance.",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "terminate_ec2_instance",
-            "description": "Terminate an EC2 instance by instance_id.",
+            "description": "Terminate an EC2 instance.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"instance_id": {"type": "string"}},
@@ -119,12 +119,12 @@ def get_mcp_tools_definition() -> List[Dict[str, Any]]:
         },
         {
             "name": "list_s3_buckets",
-            "description": "List all S3 buckets.",
+            "description": "List S3 buckets.",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "create_s3_bucket",
-            "description": "Create an S3 bucket with the given name.",
+            "description": "Create an S3 bucket.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"bucket_name": {"type": "string"}},
@@ -143,12 +143,12 @@ def get_mcp_tools_definition() -> List[Dict[str, Any]]:
         },
         {
             "name": "get_estimated_cost",
-            "description": "Get monthly AWS cost for the last 6 months.",
+            "description": "Get AWS cost for last 6 months.",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "list_budgets",
-            "description": "List AWS budgets for the current account.",
+            "description": "List AWS budgets.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"account_id": {"type": "string"}}
@@ -157,26 +157,15 @@ def get_mcp_tools_definition() -> List[Dict[str, Any]]:
     ]
 
 
-# ---------------
-# MCP endpoint: tools/list (POST)
-# ---------------
+# ----------------------
+# MCP /tools/list (POST + GET)
+# ----------------------
 @app.post("/mcp/tools/list")
-async def mcp_tools_list(req: MCPRequest):
+@app.get("/mcp/tools/list")
+async def mcp_tools_list(request: Request):
     tools = get_mcp_tools_definition()
     write_audit_log("mcp_tools_list", {"tool_count": len(tools)})
-    return {
-        "jsonrpc": "2.0",
-        "id": req.id,
-        "result": {"tools": tools}
-    }
 
-
-# ---------------
-# MCP endpoint: tools/list (GET) — required for Copilot Studio
-# ---------------
-@app.get("/mcp/tools/list")
-async def mcp_tools_list_get():
-    tools = get_mcp_tools_definition()
     return {
         "jsonrpc": "2.0",
         "id": None,
@@ -184,35 +173,46 @@ async def mcp_tools_list_get():
     }
 
 
-# ---------------
-# MCP endpoint: tools/call (POST only)
-# ---------------
+# ----------------------
+# MCP /tools/call (POST only)
+# Fully tolerant mode
+# ----------------------
 @app.post("/mcp/tools/call")
-async def mcp_tools_call(req: MCPRequest):
-    if not req.params:
+async def mcp_tools_call(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        # Copilot Studio sometimes sends invalid JSON
+        body = {}
+
+    # Ensure valid MCP structure
+    if not isinstance(body, dict):
+        body = {}
+
+    method = body.get("method", "tools/call")
+    params = body.get("params", {})
+    req_id = body.get("id", None)
+
+    # If params missing, return empty structure
+    if not isinstance(params, dict):
+        params = {}
+
+    # Extract tool call params safely
+    name = params.get("name")
+    arguments = params.get("arguments", {})
+
+    if not name:
         return {
             "jsonrpc": "2.0",
-            "id": req.id,
-            "error": {"code": -32602, "message": "Missing params"}
+            "id": req_id,
+            "error": {"code": -32602, "message": "Missing tool name"}
         }
 
+    # ----------------------
+    # TOOL DISPATCH
+    # ----------------------
     try:
-        params = MCPToolCallParams(**req.params)
-    except Exception as e:
-        return {
-            "jsonrpc": "2.0",
-            "id": req.id,
-            "error": {"code": -32602, "message": f"Invalid params: {str(e)}"}
-        }
-
-    tool_name = params.name
-    args = params.arguments or {}
-
-    try:
-        # ----------------------
-        # EC2
-        # ----------------------
-        if tool_name == "list_ec2_instances":
+        if name == "list_ec2_instances":
             resp = ec2.describe_instances()
             instances = []
             for res in resp["Reservations"]:
@@ -224,55 +224,42 @@ async def mcp_tools_call(req: MCPRequest):
                     })
             result = {"instances": instances}
 
-        elif tool_name == "create_ec2_instance":
+        elif name == "create_ec2_instance":
             resp = ec2.run_instances(
                 ImageId="ami-0fc5d935ebf8bc3bc",
                 InstanceType="t2.micro",
                 MinCount=1,
                 MaxCount=1
             )
-            instance_id = resp["Instances"][0]["InstanceId"]
-            result = {"instance_id": instance_id}
+            result = {"instance_id": resp["Instances"][0]["InstanceId"]}
 
-        elif tool_name == "terminate_ec2_instance":
-            instance_id = args.get("instance_id")
+        elif name == "terminate_ec2_instance":
+            instance_id = arguments.get("instance_id")
             if not instance_id:
                 raise ValueError("instance_id is required")
             ec2.terminate_instances(InstanceIds=[instance_id])
             result = {"terminated_instance_id": instance_id}
 
-        # ----------------------
-        # S3
-        # ----------------------
-        elif tool_name == "list_s3_buckets":
+        elif name == "list_s3_buckets":
             resp = s3.list_buckets()
             result = {"buckets": [b["Name"] for b in resp["Buckets"]]}
 
-        elif tool_name == "create_s3_bucket":
-            bucket = args.get("bucket_name")
+        elif name == "create_s3_bucket":
+            bucket = arguments.get("bucket_name")
             if not bucket:
                 raise ValueError("bucket_name is required")
             s3.create_bucket(Bucket=bucket)
             result = {"bucket_created": bucket}
 
-        # ----------------------
-        # Lambda
-        # ----------------------
-        elif tool_name == "list_lambda_functions":
+        elif name == "list_lambda_functions":
             resp = lambda_client.list_functions()
             result = {"functions": [f["FunctionName"] for f in resp["Functions"]]}
 
-        # ----------------------
-        # CloudWatch
-        # ----------------------
-        elif tool_name == "list_log_groups":
+        elif name == "list_log_groups":
             resp = logs.describe_log_groups()
             result = {"log_groups": [g["logGroupName"] for g in resp["logGroups"]]}
 
-        # ----------------------
-        # Cost Explorer
-        # ----------------------
-        elif tool_name == "get_estimated_cost":
+        elif name == "get_estimated_cost":
             today = datetime.utcnow()
             start = (today - relativedelta(months=5)).replace(day=1)
             end = today.replace(day=1) + relativedelta(months=1) - timedelta(days=1)
@@ -286,11 +273,8 @@ async def mcp_tools_call(req: MCPRequest):
             )
             result = {"cost": convert_datetimes(cost)}
 
-        # ----------------------
-        # Budgets
-        # ----------------------
-        elif tool_name == "list_budgets":
-            account_id = args.get("account_id")
+        elif name == "list_budgets":
+            account_id = arguments.get("account_id")
             if not account_id:
                 account_id = sts.get_caller_identity()["Account"]
             resp = budgets.describe_budgets(AccountId=account_id)
@@ -299,22 +283,22 @@ async def mcp_tools_call(req: MCPRequest):
         else:
             return {
                 "jsonrpc": "2.0",
-                "id": req.id,
-                "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"}
+                "id": req_id,
+                "error": {"code": -32601, "message": f"Unknown tool: {name}"}
             }
 
-        write_audit_log(tool_name, result)
+        write_audit_log(name, result)
 
         return {
             "jsonrpc": "2.0",
-            "id": req.id,
+            "id": req_id,
             "result": {"content": result}
         }
 
     except Exception as e:
-        write_audit_log("error", {"tool": tool_name, "error": str(e)})
+        write_audit_log("error", {"tool": name, "error": str(e)})
         return {
             "jsonrpc": "2.0",
-            "id": req.id,
+            "id": req_id,
             "error": {"code": -32000, "message": str(e)}
         }
