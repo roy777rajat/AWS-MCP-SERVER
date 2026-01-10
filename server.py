@@ -76,6 +76,20 @@ async def mcp_handshake(request: Request):
     method = body.get("method")
     req_id = body.get("id")
 
+    if method == "tools/list":
+        tools = get_tools()
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "tools": tools
+            }
+        }
+    if method == "tools/call":
+        # forward to your existing tools_call logic
+        return await tools_call(request)
+
+
     # MCP initialize handshake
     if method == "initialize":
         return {
@@ -103,7 +117,7 @@ async def mcp_handshake(request: Request):
             "id": req_id,
             "result": {}
         }
-
+    
     # MCP ping
     if method == "ping":
         return {
