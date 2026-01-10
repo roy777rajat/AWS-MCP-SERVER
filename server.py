@@ -72,6 +72,7 @@ app.add_middleware(
 @app.post("/")
 async def mcp_handshake(request: Request):
     body = await request.json()
+    print("MCP HANDSHAKE RECEIVED:", body)
     method = body.get("method")
     req_id = body.get("id")
 
@@ -88,11 +89,19 @@ async def mcp_handshake(request: Request):
                 },
                 "capabilities": {
                     "tools": {
-                        "list":True,
-                        "call":True
+                        "list": True,
+                        "call": True
                     }
                 }
             }
+        }
+
+    # MCP notifications/initialized
+    if method == "notifications/initialized":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {}
         }
 
     # MCP ping
@@ -109,6 +118,7 @@ async def mcp_handshake(request: Request):
         "id": req_id,
         "error": {"code": -32600, "message": "Invalid Request"}
     }
+
 
 
 @app.get("/")
