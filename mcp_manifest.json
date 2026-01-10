@@ -1,0 +1,9 @@
+{
+  "name": "aws-mcp-server",
+  "version": "1.0.0",
+  "description": "AWS automation tools via MCP",
+  "tools": {
+    "list": "/mcp/tools/list",
+    "call": "/mcp/tools/call"
+  }
+}
