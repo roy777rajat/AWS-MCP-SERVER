@@ -153,6 +153,20 @@ def get_tools():
 # ----------------------
 # MCP /tools/list
 # ----------------------
+
+@app.get("/mcp/manifest.json")
+async def manifest():
+    return {
+        "name": "aws-mcp-server",
+        "version": "1.0.0",
+        "description": "AWS automation tools via MCP",
+        "tools": {
+            "list": "/mcp/tools/list",
+            "call": "/mcp/tools/call"
+        }
+    }
+
+
 @app.post("/mcp/tools/list")
 async def tools_list(request: Request):
     body = await request.json()
