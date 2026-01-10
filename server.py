@@ -87,7 +87,10 @@ async def mcp_handshake(request: Request):
                     "version": "1.0.0"
                 },
                 "capabilities": {
-                    "tools": {}
+                    "tools": {
+                        "list":True,
+                        "call":True
+                    }
                 }
             }
         }
