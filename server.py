@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
 import boto3
@@ -81,20 +82,26 @@ app.add_middleware(
 # ----------------------
 @app.get("/")
 async def root_get():
-    return {"status": "ok", "mcp": "server running"}
+    return JSONResponse(
+        content={"status": "ok", "mcp": "server running"},
+        media_type="application/json"
+    )
 
 
 @app.post("/")
 async def root_post():
     # Copilot Studio requires JSON-RPC ERROR here
-    return {
-        "jsonrpc": "2.0",
-        "id": None,
-        "error": {
-            "code": -32600,
-            "message": "Invalid Request"
-        }
-    }
+    return JSONResponse(
+        content={
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {
+                "code": -32600,
+                "message": "Invalid Request"
+            }
+        },
+        media_type="application/json"
+    )
 
 
 # ----------------------
@@ -169,11 +176,14 @@ def get_tools():
 async def tools_list():
     tools = get_tools()
     write_audit_log("tools_list", {"count": len(tools)})
-    return {
-        "jsonrpc": "2.0",
-        "id": None,
-        "result": {"tools": tools}
-    }
+    return JSONResponse(
+        content={
+            "jsonrpc": "2.0",
+            "id": None,
+            "result": {"tools": tools}
+        },
+        media_type="application/json"
+    )
 
 
 # ----------------------
@@ -181,15 +191,17 @@ async def tools_list():
 # ----------------------
 @app.get("/mcp/tools/call")
 async def tools_call_get():
-    # Copilot Studio requires JSON-RPC error here
-    return {
-        "jsonrpc": "2.0",
-        "id": None,
-        "error": {
-            "code": -32600,
-            "message": "GET not supported for tools/call"
-        }
-    }
+    return JSONResponse(
+        content={
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {
+                "code": -32600,
+                "message": "GET not supported for tools/call"
+            }
+        },
+        media_type="application/json"
+    )
 
 
 @app.post("/mcp/tools/call")
@@ -205,11 +217,14 @@ async def tools_call(request: Request):
     req_id = body.get("id", None)
 
     if not name:
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "error": {"code": -32602, "message": "Missing tool name"}
-        }
+        return JSONResponse(
+            content={
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32602, "message": "Missing tool name"}
+            },
+            media_type="application/json"
+        )
 
     try:
         # ----------------------
@@ -284,24 +299,33 @@ async def tools_call(request: Request):
             result = {"budgets": convert_datetimes(resp.get("Budgets", []))}
 
         else:
-            return {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "error": {"code": -32601, "message": f"Unknown tool: {name}"}
-            }
+            return JSONResponse(
+                content={
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32601, "message": f"Unknown tool: {name}"}
+                },
+                media_type="application/json"
+            )
 
         write_audit_log(name, result)
 
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {"content": result}
-        }
+        return JSONResponse(
+            content={
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"content": result}
+            },
+            media_type="application/json"
+        )
 
     except Exception as e:
         write_audit_log("error", {"tool": name, "error": str(e)})
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "error": {"code": -32000, "message": str(e)}
-        }
+        return JSONResponse(
+            content={
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32000, "message": str(e)}
+            },
+            media_type="application/json"
+        )
