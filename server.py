@@ -54,16 +54,6 @@ def convert_datetimes(obj):
 
 
 # ----------------------
-# MCP MODELS
-# ----------------------
-class MCPRequest(BaseModel):
-    jsonrpc: str = "2.0"
-    id: Optional[Any] = None
-    method: Optional[str] = None
-    params: Optional[Dict[str, Any]] = {}
-
-
-# ----------------------
 # FASTAPI APP
 # ----------------------
 app = FastAPI()
@@ -77,31 +67,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # ----------------------
 # ROOT ENDPOINTS
 # ----------------------
 @app.get("/")
 async def root_get():
-    return JSONResponse(
-        content={"status": "ok", "mcp": "server running"},
-        media_type="application/json"
-    )
+    return {"status": "ok", "mcp": "server running"}
 
 
 @app.post("/")
 async def root_post():
-    # Copilot Studio requires JSON-RPC ERROR here
-    return JSONResponse(
-        content={
-            "jsonrpc": "2.0",
-            "id": None,
-            "error": {
-                "code": -32600,
-                "message": "Invalid Request"
-            }
-        },
-        media_type="application/json"
-    )
+    # Copilot Studio expects JSON-RPC error here
+    return {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {"code": -32600, "message": "Invalid Request"}
+    }
 
 
 # ----------------------
@@ -169,62 +151,57 @@ def get_tools():
 
 
 # ----------------------
-# MCP /tools/list (GET + POST)
+# MCP /tools/list
 # ----------------------
-@app.get("/mcp/tools/list")
 @app.post("/mcp/tools/list")
-async def tools_list():
+async def tools_list(request: Request):
+    body = await request.json()
+    req_id = body.get("id")
+    method = body.get("method")
+
+    if method != "tools/list":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32601, "message": "Method not found"}
+        }
+
     tools = get_tools()
     write_audit_log("tools_list", {"count": len(tools)})
-    return JSONResponse(
-        content={
-            "jsonrpc": "2.0",
-            "id": None,
-            "result": {"tools": tools}
-        },
-        media_type="application/json"
-    )
+
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "result": {"tools": tools}
+    }
 
 
 # ----------------------
 # MCP /tools/call
 # ----------------------
-@app.get("/mcp/tools/call")
-async def tools_call_get():
-    return JSONResponse(
-        content={
-            "jsonrpc": "2.0",
-            "id": None,
-            "error": {
-                "code": -32600,
-                "message": "GET not supported for tools/call"
-            }
-        },
-        media_type="application/json"
-    )
-
-
 @app.post("/mcp/tools/call")
 async def tools_call(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
+    body = await request.json()
+    req_id = body.get("id")
+    method = body.get("method")
+
+    if method != "tools/call":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32601, "message": "Method not found"}
+        }
 
     params = body.get("params", {})
     name = params.get("name")
     args = params.get("arguments", {})
-    req_id = body.get("id", None)
 
     if not name:
-        return JSONResponse(
-            content={
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "error": {"code": -32602, "message": "Missing tool name"}
-            },
-            media_type="application/json"
-        )
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "Missing tool name"}
+        }
 
     try:
         # ----------------------
@@ -299,33 +276,24 @@ async def tools_call(request: Request):
             result = {"budgets": convert_datetimes(resp.get("Budgets", []))}
 
         else:
-            return JSONResponse(
-                content={
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "error": {"code": -32601, "message": f"Unknown tool: {name}"}
-                },
-                media_type="application/json"
-            )
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32601, "message": f"Unknown tool: {name}"}
+            }
 
         write_audit_log(name, result)
 
-        return JSONResponse(
-            content={
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {"content": result}
-            },
-            media_type="application/json"
-        )
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"content": result}
+        }
 
     except Exception as e:
         write_audit_log("error", {"tool": name, "error": str(e)})
-        return JSONResponse(
-            content={
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "error": {"code": -32000, "message": str(e)}
-            },
-            media_type="application/json"
-        )
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32000, "message": str(e)}
+        }
