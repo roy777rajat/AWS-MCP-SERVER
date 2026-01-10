@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 import boto3
 import json
 from datetime import datetime, timedelta
@@ -9,7 +9,7 @@ from dateutil.relativedelta import relativedelta
 import os
 
 # ----------------------
-# AWS config
+# AWS CONFIG
 # ----------------------
 REGION = os.getenv("AWS_REGION", "eu-west-1")
 
@@ -26,7 +26,6 @@ s3_audit = boto3.client("s3", region_name=REGION)
 
 
 def write_audit_log(action: str, details: Any):
-    """Write simple audit logs to S3."""
     try:
         log = {
             "action": action,
@@ -43,7 +42,6 @@ def write_audit_log(action: str, details: Any):
 
 
 def convert_datetimes(obj):
-    """Recursively convert datetimes to ISO strings."""
     if isinstance(obj, dict):
         return {k: convert_datetimes(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -55,7 +53,7 @@ def convert_datetimes(obj):
 
 
 # ----------------------
-# MCP Models
+# MCP MODELS
 # ----------------------
 class MCPRequest(BaseModel):
     jsonrpc: str = "2.0"
@@ -64,19 +62,12 @@ class MCPRequest(BaseModel):
     params: Optional[Dict[str, Any]] = {}
 
 
-class MCPToolCallParams(BaseModel):
-    name: str
-    arguments: Dict[str, Any]
-
-
 # ----------------------
-# FastAPI App
+# FASTAPI APP
 # ----------------------
 app = FastAPI()
 
-# ----------------------
-# CORS (required for Copilot Studio)
-# ----------------------
+# CORS REQUIRED FOR COPILOT STUDIO
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -86,26 +77,30 @@ app.add_middleware(
 )
 
 # ----------------------
-# Root health check (required by Copilot Studio)
+# ROOT ENDPOINTS
 # ----------------------
 @app.get("/")
-async def root():
+async def root_get():
     return {"status": "ok", "mcp": "server running"}
+
 
 @app.post("/")
 async def root_post():
-    # Copilot Studio sends POST / with empty or invalid JSON
+    # Copilot Studio requires JSON-RPC ERROR here
     return {
         "jsonrpc": "2.0",
         "id": None,
-        "result": {"status": "ok", "message": "MCP server root POST acknowledged"}
+        "error": {
+            "code": -32600,
+            "message": "Invalid Request"
+        }
     }
 
 
 # ----------------------
-# MCP Tools Definition
+# MCP TOOL DEFINITIONS
 # ----------------------
-def get_mcp_tools_definition():
+def get_tools():
     return [
         {
             "name": "list_ec2_instances",
@@ -167,14 +162,13 @@ def get_mcp_tools_definition():
 
 
 # ----------------------
-# MCP /tools/list (POST + GET)
+# MCP /tools/list (GET + POST)
 # ----------------------
-@app.post("/mcp/tools/list")
 @app.get("/mcp/tools/list")
-async def mcp_tools_list(request: Request):
-    tools = get_mcp_tools_definition()
-    write_audit_log("mcp_tools_list", {"tool_count": len(tools)})
-
+@app.post("/mcp/tools/list")
+async def tools_list():
+    tools = get_tools()
+    write_audit_log("tools_list", {"count": len(tools)})
     return {
         "jsonrpc": "2.0",
         "id": None,
@@ -183,32 +177,32 @@ async def mcp_tools_list(request: Request):
 
 
 # ----------------------
-# MCP /tools/call (POST only)
-# Fully tolerant mode
+# MCP /tools/call
 # ----------------------
+@app.get("/mcp/tools/call")
+async def tools_call_get():
+    # Copilot Studio requires JSON-RPC error here
+    return {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {
+            "code": -32600,
+            "message": "GET not supported for tools/call"
+        }
+    }
+
+
 @app.post("/mcp/tools/call")
-async def mcp_tools_call(request: Request):
+async def tools_call(request: Request):
     try:
         body = await request.json()
     except Exception:
-        # Copilot Studio sometimes sends invalid JSON
         body = {}
 
-    # Ensure valid MCP structure
-    if not isinstance(body, dict):
-        body = {}
-
-    method = body.get("method", "tools/call")
     params = body.get("params", {})
-    req_id = body.get("id", None)
-
-    # If params missing, return empty structure
-    if not isinstance(params, dict):
-        params = {}
-
-    # Extract tool call params safely
     name = params.get("name")
-    arguments = params.get("arguments", {})
+    args = params.get("arguments", {})
+    req_id = body.get("id", None)
 
     if not name:
         return {
@@ -217,10 +211,10 @@ async def mcp_tools_call(request: Request):
             "error": {"code": -32602, "message": "Missing tool name"}
         }
 
-    # ----------------------
-    # TOOL DISPATCH
-    # ----------------------
     try:
+        # ----------------------
+        # TOOL DISPATCH
+        # ----------------------
         if name == "list_ec2_instances":
             resp = ec2.describe_instances()
             instances = []
@@ -243,7 +237,7 @@ async def mcp_tools_call(request: Request):
             result = {"instance_id": resp["Instances"][0]["InstanceId"]}
 
         elif name == "terminate_ec2_instance":
-            instance_id = arguments.get("instance_id")
+            instance_id = args.get("instance_id")
             if not instance_id:
                 raise ValueError("instance_id is required")
             ec2.terminate_instances(InstanceIds=[instance_id])
@@ -254,7 +248,7 @@ async def mcp_tools_call(request: Request):
             result = {"buckets": [b["Name"] for b in resp["Buckets"]]}
 
         elif name == "create_s3_bucket":
-            bucket = arguments.get("bucket_name")
+            bucket = args.get("bucket_name")
             if not bucket:
                 raise ValueError("bucket_name is required")
             s3.create_bucket(Bucket=bucket)
@@ -283,7 +277,7 @@ async def mcp_tools_call(request: Request):
             result = {"cost": convert_datetimes(cost)}
 
         elif name == "list_budgets":
-            account_id = arguments.get("account_id")
+            account_id = args.get("account_id")
             if not account_id:
                 account_id = sts.get_caller_identity()["Account"]
             resp = budgets.describe_budgets(AccountId=account_id)
