@@ -92,6 +92,15 @@ app.add_middleware(
 async def root():
     return {"status": "ok", "mcp": "server running"}
 
+@app.post("/")
+async def root_post():
+    # Copilot Studio sends POST / with empty or invalid JSON
+    return {
+        "jsonrpc": "2.0",
+        "id": None,
+        "result": {"status": "ok", "message": "MCP server root POST acknowledged"}
+    }
+
 
 # ----------------------
 # MCP Tools Definition
