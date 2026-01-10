@@ -263,7 +263,7 @@ async def tools_call(request: Request):
     body = await request.json()
     req_id = body.get("id")
     method = body.get("method")
-
+    print("[tools_call] ",body)
     if method != "tools/call":
         return {
             "jsonrpc": "2.0",
@@ -315,7 +315,9 @@ async def tools_call(request: Request):
             result = {"terminated_instance_id": instance_id}
 
         elif name == "list_s3_buckets":
+            print("---before calling s3----")
             resp = s3.list_buckets()
+            print("---after  calling s3----",resp)
             result = {"buckets": [b["Name"] for b in resp["Buckets"]]}
 
         elif name == "create_s3_bucket":
