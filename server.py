@@ -150,16 +150,19 @@ def get_tools():
         {
             "name": "list_ec2_instances",
             "description": "List all EC2 instances.",
+            "type": "function",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "create_ec2_instance",
             "description": "Create a t2.micro EC2 instance.",
+            "type": "function",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "terminate_ec2_instance",
             "description": "Terminate an EC2 instance.",
+            "type": "function",
             "inputSchema": {
                 "type": "object",
                 "properties": {"instance_id": {"type": "string"}},
@@ -169,11 +172,13 @@ def get_tools():
         {
             "name": "list_s3_buckets",
             "description": "List S3 buckets.",
+            "type": "function",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "create_s3_bucket",
             "description": "Create an S3 bucket.",
+            "type": "function",
             "inputSchema": {
                 "type": "object",
                 "properties": {"bucket_name": {"type": "string"}},
@@ -183,21 +188,25 @@ def get_tools():
         {
             "name": "list_lambda_functions",
             "description": "List Lambda functions.",
+            "type": "function",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "list_log_groups",
             "description": "List CloudWatch log groups.",
+            "type": "function",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "get_estimated_cost",
             "description": "Get AWS cost for last 6 months.",
+            "type": "function",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "list_budgets",
             "description": "List AWS budgets.",
+            "type": "function",
             "inputSchema": {
                 "type": "object",
                 "properties": {"account_id": {"type": "string"}}
