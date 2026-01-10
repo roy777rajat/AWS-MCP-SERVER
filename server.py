@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 import boto3
@@ -38,8 +39,7 @@ def write_audit_log(action: str, details: Any):
             Body=json.dumps(log)
         )
     except Exception:
-        # Fail silently for logging; don't break tools
-        pass
+        pass  # Do not break tool execution if logging fails
 
 
 def convert_datetimes(obj):
@@ -69,7 +69,28 @@ class MCPToolCallParams(BaseModel):
     arguments: Dict[str, Any]
 
 
+# ----------------------
+# FastAPI app
+# ----------------------
 app = FastAPI()
+
+# ----------------------
+# CORS (required for Copilot Studio)
+# ----------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ----------------------
+# Root health check (required by Copilot Studio)
+# ----------------------
+@app.get("/")
+async def root():
+    return {"status": "ok", "mcp": "server running"}
 
 
 # ---------------
@@ -80,88 +101,64 @@ def get_mcp_tools_definition() -> List[Dict[str, Any]]:
         {
             "name": "list_ec2_instances",
             "description": "List all EC2 instances in the configured region.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
+            "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "create_ec2_instance",
-            "description": "Create a t2.micro EC2 instance with a default AMI in the configured region.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
+            "description": "Create a t2.micro EC2 instance with a default AMI.",
+            "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "terminate_ec2_instance",
             "description": "Terminate an EC2 instance by instance_id.",
             "inputSchema": {
                 "type": "object",
-                "properties": {
-                    "instance_id": {"type": "string"}
-                },
+                "properties": {"instance_id": {"type": "string"}},
                 "required": ["instance_id"]
             }
         },
         {
             "name": "list_s3_buckets",
             "description": "List all S3 buckets.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
+            "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "create_s3_bucket",
             "description": "Create an S3 bucket with the given name.",
             "inputSchema": {
                 "type": "object",
-                "properties": {
-                    "bucket_name": {"type": "string"}
-                },
+                "properties": {"bucket_name": {"type": "string"}},
                 "required": ["bucket_name"]
             }
         },
         {
             "name": "list_lambda_functions",
-            "description": "List Lambda functions in the configured region.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
+            "description": "List Lambda functions.",
+            "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "list_log_groups",
             "description": "List CloudWatch log groups.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
+            "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "get_estimated_cost",
             "description": "Get monthly AWS cost for the last 6 months.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
+            "inputSchema": {"type": "object", "properties": {}}
         },
         {
             "name": "list_budgets",
-            "description": "List AWS budgets for the current account. Optional account_id override.",
+            "description": "List AWS budgets for the current account.",
             "inputSchema": {
                 "type": "object",
-                "properties": {
-                    "account_id": {"type": "string"}
-                }
+                "properties": {"account_id": {"type": "string"}}
             }
         }
     ]
 
 
 # ---------------
-# MCP endpoint: tools/list
+# MCP endpoint: tools/list (POST)
 # ---------------
 @app.post("/mcp/tools/list")
 async def mcp_tools_list(req: MCPRequest):
@@ -170,14 +167,25 @@ async def mcp_tools_list(req: MCPRequest):
     return {
         "jsonrpc": "2.0",
         "id": req.id,
-        "result": {
-            "tools": tools
-        }
+        "result": {"tools": tools}
     }
 
 
 # ---------------
-# MCP endpoint: tools/call
+# MCP endpoint: tools/list (GET) — required for Copilot Studio
+# ---------------
+@app.get("/mcp/tools/list")
+async def mcp_tools_list_get():
+    tools = get_mcp_tools_definition()
+    return {
+        "jsonrpc": "2.0",
+        "id": None,
+        "result": {"tools": tools}
+    }
+
+
+# ---------------
+# MCP endpoint: tools/call (POST only)
 # ---------------
 @app.post("/mcp/tools/call")
 async def mcp_tools_call(req: MCPRequest):
@@ -201,7 +209,9 @@ async def mcp_tools_call(req: MCPRequest):
     args = params.arguments or {}
 
     try:
-        # Dispatch based on tool_name
+        # ----------------------
+        # EC2
+        # ----------------------
         if tool_name == "list_ec2_instances":
             resp = ec2.describe_instances()
             instances = []
@@ -212,7 +222,6 @@ async def mcp_tools_call(req: MCPRequest):
                         "state": i["State"]["Name"],
                         "type": i["InstanceType"]
                     })
-            write_audit_log("list_ec2_instances", {"count": len(instances)})
             result = {"instances": instances}
 
         elif tool_name == "create_ec2_instance":
@@ -223,7 +232,6 @@ async def mcp_tools_call(req: MCPRequest):
                 MaxCount=1
             )
             instance_id = resp["Instances"][0]["InstanceId"]
-            write_audit_log("create_ec2_instance", {"instance_id": instance_id})
             result = {"instance_id": instance_id}
 
         elif tool_name == "terminate_ec2_instance":
@@ -231,35 +239,39 @@ async def mcp_tools_call(req: MCPRequest):
             if not instance_id:
                 raise ValueError("instance_id is required")
             ec2.terminate_instances(InstanceIds=[instance_id])
-            write_audit_log("terminate_ec2_instance", {"instance_id": instance_id})
             result = {"terminated_instance_id": instance_id}
 
+        # ----------------------
+        # S3
+        # ----------------------
         elif tool_name == "list_s3_buckets":
             resp = s3.list_buckets()
-            buckets = [b["Name"] for b in resp["Buckets"]]
-            write_audit_log("list_s3_buckets", {"count": len(buckets)})
-            result = {"buckets": buckets}
+            result = {"buckets": [b["Name"] for b in resp["Buckets"]]}
 
         elif tool_name == "create_s3_bucket":
             bucket = args.get("bucket_name")
             if not bucket:
                 raise ValueError("bucket_name is required")
             s3.create_bucket(Bucket=bucket)
-            write_audit_log("create_s3_bucket", {"bucket": bucket})
             result = {"bucket_created": bucket}
 
+        # ----------------------
+        # Lambda
+        # ----------------------
         elif tool_name == "list_lambda_functions":
             resp = lambda_client.list_functions()
-            funcs = [f["FunctionName"] for f in resp["Functions"]]
-            write_audit_log("list_lambda_functions", {"count": len(funcs)})
-            result = {"functions": funcs}
+            result = {"functions": [f["FunctionName"] for f in resp["Functions"]]}
 
+        # ----------------------
+        # CloudWatch
+        # ----------------------
         elif tool_name == "list_log_groups":
             resp = logs.describe_log_groups()
-            groups = [g["logGroupName"] for g in resp["logGroups"]]
-            write_audit_log("list_log_groups", {"count": len(groups)})
-            result = {"log_groups": groups}
+            result = {"log_groups": [g["logGroupName"] for g in resp["logGroups"]]}
 
+        # ----------------------
+        # Cost Explorer
+        # ----------------------
         elif tool_name == "get_estimated_cost":
             today = datetime.utcnow()
             start = (today - relativedelta(months=5)).replace(day=1)
@@ -272,20 +284,17 @@ async def mcp_tools_call(req: MCPRequest):
                 Granularity="MONTHLY",
                 Metrics=["UnblendedCost"]
             )
-            write_audit_log(
-                "get_estimated_cost",
-                {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%d")}
-            )
             result = {"cost": convert_datetimes(cost)}
 
+        # ----------------------
+        # Budgets
+        # ----------------------
         elif tool_name == "list_budgets":
             account_id = args.get("account_id")
             if not account_id:
                 account_id = sts.get_caller_identity()["Account"]
             resp = budgets.describe_budgets(AccountId=account_id)
-            budgets_list = convert_datetimes(resp.get("Budgets", []))
-            write_audit_log("list_budgets", {"count": len(budgets_list)})
-            result = {"budgets": budgets_list}
+            result = {"budgets": convert_datetimes(resp.get("Budgets", []))}
 
         else:
             return {
@@ -294,12 +303,12 @@ async def mcp_tools_call(req: MCPRequest):
                 "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"}
             }
 
+        write_audit_log(tool_name, result)
+
         return {
             "jsonrpc": "2.0",
             "id": req.id,
-            "result": {
-                "content": result
-            }
+            "result": {"content": result}
         }
 
     except Exception as e:
