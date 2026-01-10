@@ -1,8 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from typing import Any, Dict, Optional
+from typing import Any
 import boto3
 import json
 from datetime import datetime, timedelta
@@ -58,7 +57,6 @@ def convert_datetimes(obj):
 # ----------------------
 app = FastAPI()
 
-# CORS REQUIRED FOR COPILOT STUDIO
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -69,20 +67,65 @@ app.add_middleware(
 
 
 # ----------------------
-# ROOT ENDPOINTS
+# MCP HANDSHAKE (CRITICAL)
 # ----------------------
+@app.post("/")
+async def mcp_handshake(request: Request):
+    body = await request.json()
+    method = body.get("method")
+    req_id = body.get("id")
+
+    # MCP initialize handshake
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "protocolVersion": "2024-01-01",
+                "serverInfo": {
+                    "name": "aws-mcp-server",
+                    "version": "1.0.0"
+                },
+                "capabilities": {
+                    "tools": {}
+                }
+            }
+        }
+
+    # MCP ping
+    if method == "ping":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {}
+        }
+
+    # Anything else = invalid
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "error": {"code": -32600, "message": "Invalid Request"}
+    }
+
+
 @app.get("/")
 async def root_get():
     return {"status": "ok", "mcp": "server running"}
 
 
-@app.post("/")
-async def root_post():
-    # Copilot Studio expects JSON-RPC error here
+# ----------------------
+# MCP MANIFEST
+# ----------------------
+@app.get("/mcp/manifest.json")
+async def manifest():
     return {
-        "jsonrpc": "2.0",
-        "id": None,
-        "error": {"code": -32600, "message": "Invalid Request"}
+        "name": "aws-mcp-server",
+        "version": "1.0.0",
+        "description": "AWS automation tools via MCP",
+        "tools": {
+            "list": "/mcp/tools/list",
+            "call": "/mcp/tools/call"
+        }
     }
 
 
@@ -153,20 +196,6 @@ def get_tools():
 # ----------------------
 # MCP /tools/list
 # ----------------------
-
-@app.get("/mcp/manifest.json")
-async def manifest():
-    return {
-        "name": "aws-mcp-server",
-        "version": "1.0.0",
-        "description": "AWS automation tools via MCP",
-        "tools": {
-            "list": "/mcp/tools/list",
-            "call": "/mcp/tools/call"
-        }
-    }
-
-
 @app.post("/mcp/tools/list")
 async def tools_list(request: Request):
     body = await request.json()
