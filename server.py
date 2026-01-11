@@ -300,7 +300,7 @@ async def tools_call(request: Request):
 
         elif name == "create_ec2_instance":
             resp = ec2.run_instances(
-                ImageId="ami-0fc5d935ebf8bc3bc",
+                ImageId="ami-049442a6cf8319180",
                 InstanceType="t2.micro",
                 MinCount=1,
                 MaxCount=1
