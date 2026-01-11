@@ -1,24 +1,12 @@
+[![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python&logoColor=white)](https://www.python.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-0.95+-green?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/) [![AWS](https://img.shields.io/badge/AWS-Cloud-orange?logo=amazonaws&logoColor=white)](https://aws.amazon.com/) [![Boto3](https://img.shields.io/badge/Boto3-SDK-FF9900?logo=amazonaws&logoColor=white)](https://boto3.amazonaws.com/) [![JSON-RPC](https://img.shields.io/badge/JSON--RPC-2.0-yellow?logo=json&logoColor=white)](https://www.jsonrpc.org/) [![MCP](https://img.shields.io/badge/MCP-Protocol-blueviolet)](https://modelcontextprotocol.io/) [![Render](https://img.shields.io/badge/Render-Deployment-46E3B7?logo=render&logoColor=white)](https://render.com/) [![GitHub](https://img.shields.io/badge/GitHub-VCS-black?logo=github&logoColor=white)](https://github.com/)
+
 # AWS MCP Server: Enterprise-Grade Autonomous AI Agent
 
 > **Building Intelligent AWS Automation with Model Context Protocol (MCP), Git, and Microsoft Copilot Studio**
 
 ---
 
-## 🛠️ Technology Stack (Quick View)
-
-<div align="center">
-
-| | | | |
-|:---:|:---:|:---:|:---:|
-| [![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python&logoColor=white)](https://www.python.org/) | [![FastAPI](https://img.shields.io/badge/FastAPI-0.95+-green?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/) | [![AWS](https://img.shields.io/badge/AWS-Cloud-orange?logo=amazonaws&logoColor=white)](https://aws.amazon.com/) | [![Boto3](https://img.shields.io/badge/Boto3-SDK-FF9900?logo=amazonaws&logoColor=white)](https://boto3.amazonaws.com/) |
-| [![JSON-RPC](https://img.shields.io/badge/JSON--RPC-2.0-yellow?logo=json&logoColor=white)](https://www.jsonrpc.org/) | [![MCP](https://img.shields.io/badge/MCP-Protocol-blueviolet?logo=protocol-buffers&logoColor=white)](https://modelcontextprotocol.io/) | [![Render](https://img.shields.io/badge/Render-Deployment-46E3B7?logo=render&logoColor=white)](https://render.com/) | [![GitHub](https://img.shields.io/badge/GitHub-Version%20Control-black?logo=github&logoColor=white)](https://github.com/) |
-| [![Uvicorn](https://img.shields.io/badge/Uvicorn-ASGI-29b6f6?logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==&logoColor=white)](https://www.uvicorn.org/) | [![S3](https://img.shields.io/badge/AWS%20S3-Storage-569A31?logo=amazons3&logoColor=white)](https://aws.amazon.com/s3/) | [![EC2](https://img.shields.io/badge/AWS%20EC2-Compute-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/ec2/) | [![Copilot Studio](https://img.shields.io/badge/Copilot%20Studio-AI%20Agent-0078D4?logo=microsoft&logoColor=white)](https://copilot.microsoft.com/) |
-
-</div>
-
----
-
-## 📐 Architecture Diagram
+##  Architecture Diagram
 
 ![AWS MCP Server Architecture](./image/Layout.png)
 
