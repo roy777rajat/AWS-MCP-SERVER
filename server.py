@@ -8,6 +8,9 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import os
 
+import requests
+
+
 # ----------------------
 # AWS CONFIG
 # ----------------------
@@ -225,7 +228,18 @@ def get_tools():
                 "type": "object",
                 "properties": {"account_id": {"type": "string"}}
             }
+        },
+
+        {
+            "name": "get_profile_stat",
+            "description": "Get profile statistics",
+            "type": "function",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
         }
+
     ]
 
 
@@ -355,6 +369,13 @@ async def tools_call(request: Request):
                 account_id = sts.get_caller_identity()["Account"]
             resp = budgets.describe_budgets(AccountId=account_id)
             result = {"budgets": convert_datetimes(resp.get("Budgets", []))}
+
+        elif name == "get_profile_stat":
+            url = "https://zztynrwa31.execute-api.eu-west-1.amazonaws.com/stats"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            result = response.json()
+
 
         else:
             return {
