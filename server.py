@@ -238,7 +238,18 @@ def get_tools():
                 "type": "object",
                 "properties": {}
             }
+        },
+        {
+            "name": "send_portfolio_stats_email",
+            "description": "Send the portfolio status to email.",
+            "type": "function",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
         }
+
+        
 
     ]
 
@@ -375,6 +386,27 @@ async def tools_call(request: Request):
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             result = response.json()
+
+
+
+        elif name == "send_portfolio_stats_email":
+            payload = {
+                "source": "mcp",
+                "action": "send_portfolio_stats_email",
+                "requested_at": datetime.utcnow().isoformat()
+            }
+
+            lambda_client.invoke(
+                FunctionName="portfolio-stat-email",
+                InvocationType="Event",
+                Payload=json.dumps(payload)
+            )
+
+            result = {
+                "status": "triggered",
+                "message": "Portfolio stats email sent"
+            }
+
 
 
         else:
