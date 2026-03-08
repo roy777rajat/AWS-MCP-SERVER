@@ -5,7 +5,8 @@ import os
 import requests
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
-
+import mcp
+print("MCP VERSION:", mcp.__version__)
 # ----------------------
 # AWS CONFIG
 # ----------------------
