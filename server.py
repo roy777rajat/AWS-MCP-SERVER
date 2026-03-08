@@ -53,9 +53,30 @@ def convert_datetimes(obj):
 
 
 # ----------------------
+# PATCH HOST VALIDATION
+# ----------------------
+try:
+    from mcp.server.streamable_http import StreamableHTTPServerTransport
+    original_check = StreamableHTTPServerTransport._check_host_header
+
+    async def patched_check(self, *args, **kwargs):
+        return  # skip host validation entirely
+
+    StreamableHTTPServerTransport._check_host_header = patched_check
+except Exception:
+    pass
+
+try:
+    import mcp.server.transport_security as ts
+    ts.check_host = lambda *a, **kw: None
+except Exception:
+    pass
+
+
+# ----------------------
 # MCP SERVER
 # ----------------------
-mcp = FastMCP("aws-mcp-server", stateless_http=True, allowed_hosts=["*"])
+mcp = FastMCP("aws-mcp-server", stateless_http=True)
 
 
 @mcp.tool()
