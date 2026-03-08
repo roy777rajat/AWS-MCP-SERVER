@@ -1,15 +1,10 @@
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from typing import Any
+from mcp.server.fastmcp import FastMCP
 import boto3
 import json
+import os
+import requests
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
-import os
-
-import requests
-
 
 # ----------------------
 # AWS CONFIG
@@ -28,7 +23,10 @@ AUDIT_BUCKET = os.getenv("AUDIT_BUCKET", "aws-mcp-audit-logs-rajat")
 s3_audit = boto3.client("s3", region_name=REGION)
 
 
-def write_audit_log(action: str, details: Any):
+# ----------------------
+# HELPERS
+# ----------------------
+def write_audit_log(action: str, details):
     try:
         log = {
             "action": action,
@@ -51,383 +49,148 @@ def convert_datetimes(obj):
         return [convert_datetimes(i) for i in obj]
     elif isinstance(obj, datetime):
         return obj.isoformat()
-    else:
-        return obj
+    return obj
 
 
 # ----------------------
-# FASTAPI APP
+# MCP SERVER
 # ----------------------
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+mcp = FastMCP("aws-mcp-server")
 
 
-# ----------------------
-# MCP HANDSHAKE (CRITICAL)
-# ----------------------
-@app.post("/")
-async def mcp_handshake(request: Request):
-    body = await request.json()
-    print("MCP HANDSHAKE RECEIVED:", body)
-    method = body.get("method")
-    req_id = body.get("id")
-
-    if method == "tools/list":
-        tools = get_tools()
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {
-                "tools": tools
-            }
-        }
-    if method == "tools/call":
-        # forward to your existing tools_call logic
-        return await tools_call(request)
+@mcp.tool()
+def list_ec2_instances() -> dict:
+    """List all EC2 instances."""
+    resp = ec2.describe_instances()
+    instances = []
+    for res in resp["Reservations"]:
+        for i in res["Instances"]:
+            instances.append({
+                "instance_id": i["InstanceId"],
+                "state": i["State"]["Name"],
+                "type": i["InstanceType"]
+            })
+    write_audit_log("list_ec2_instances", {"count": len(instances)})
+    return {"instances": instances}
 
 
-    # MCP initialize handshake
-    if method == "initialize":
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {
-                "protocolVersion": "2025-11-25",
-                "serverInfo": {
-                    "name": "aws-mcp-server",
-                    "version": "1.0.0"
-                },
-                "capabilities": {
-                    "tools": {
-                        "list": True,
-                        "call": True
-                    }
-                }
-            }
-        }
+@mcp.tool()
+def create_ec2_instance() -> dict:
+    """Create a t2.micro EC2 instance."""
+    resp = ec2.run_instances(
+        ImageId="ami-049442a6cf8319180",
+        InstanceType="t2.micro",
+        MinCount=1,
+        MaxCount=1
+    )
+    result = {"instance_id": resp["Instances"][0]["InstanceId"]}
+    write_audit_log("create_ec2_instance", result)
+    return result
 
-    # MCP notifications/initialized
-    if method == "notifications/initialized":
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {}
-        }
-    
-    # MCP ping
-    if method == "ping":
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {}
-        }
 
-    # Anything else = invalid
-    return {
-        "jsonrpc": "2.0",
-        "id": req_id,
-        "error": {"code": -32600, "message": "Invalid Request"}
+@mcp.tool()
+def terminate_ec2_instance(instance_id: str) -> dict:
+    """Terminate an EC2 instance."""
+    ec2.terminate_instances(InstanceIds=[instance_id])
+    result = {"terminated_instance_id": instance_id}
+    write_audit_log("terminate_ec2_instance", result)
+    return result
+
+
+@mcp.tool()
+def list_s3_buckets() -> dict:
+    """List all S3 buckets."""
+    resp = s3.list_buckets()
+    result = {"buckets": [b["Name"] for b in resp["Buckets"]]}
+    write_audit_log("list_s3_buckets", result)
+    return result
+
+
+@mcp.tool()
+def create_s3_bucket(bucket_name: str) -> dict:
+    """Create an S3 bucket."""
+    s3.create_bucket(Bucket=bucket_name)
+    result = {"bucket_created": bucket_name}
+    write_audit_log("create_s3_bucket", result)
+    return result
+
+
+@mcp.tool()
+def list_lambda_functions() -> dict:
+    """List all Lambda functions."""
+    resp = lambda_client.list_functions()
+    result = {"functions": [f["FunctionName"] for f in resp["Functions"]]}
+    write_audit_log("list_lambda_functions", result)
+    return result
+
+
+@mcp.tool()
+def list_log_groups() -> dict:
+    """List CloudWatch log groups."""
+    resp = logs.describe_log_groups()
+    result = {"log_groups": [g["logGroupName"] for g in resp["logGroups"]]}
+    write_audit_log("list_log_groups", result)
+    return result
+
+
+@mcp.tool()
+def get_estimated_cost() -> dict:
+    """Get AWS cost for last 6 months."""
+    today = datetime.utcnow()
+    start = (today - relativedelta(months=5)).replace(day=1)
+    end = today.replace(day=1) + relativedelta(months=1) - timedelta(days=1)
+    cost = ce.get_cost_and_usage(
+        TimePeriod={
+            "Start": start.strftime("%Y-%m-%d"),
+            "End": end.strftime("%Y-%m-%d")
+        },
+        Granularity="MONTHLY",
+        Metrics=["UnblendedCost"]
+    )
+    result = {"cost": convert_datetimes(cost)}
+    write_audit_log("get_estimated_cost", {})
+    return result
+
+
+@mcp.tool()
+def list_budgets(account_id: str = "") -> dict:
+    """List AWS budgets."""
+    if not account_id:
+        account_id = sts.get_caller_identity()["Account"]
+    resp = budgets.describe_budgets(AccountId=account_id)
+    result = {"budgets": convert_datetimes(resp.get("Budgets", []))}
+    write_audit_log("list_budgets", {})
+    return result
+
+
+@mcp.tool()
+def get_profile_stat() -> dict:
+    """Get profile statistics."""
+    url = "https://zztynrwa31.execute-api.eu-west-1.amazonaws.com/stats"
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool()
+def send_portfolio_stats_email() -> dict:
+    """Send the portfolio stats email."""
+    payload = {
+        "source": "mcp",
+        "action": "send_portfolio_stats_email",
+        "requested_at": datetime.utcnow().isoformat()
     }
-
-
-
-@app.get("/")
-async def root_get():
-    return {"status": "ok", "mcp": "server running"}
-
-
-# ----------------------
-# MCP MANIFEST
-# ----------------------
-@app.get("/mcp/manifest.json")
-async def manifest():
-    return {
-        "name": "aws-mcp-server",
-        "version": "1.0.0",
-        "description": "AWS automation tools via MCP",
-        "tools": {
-            "list": "/mcp/tools/list",
-            "call": "/mcp/tools/call"
-        }
-    }
+    lambda_client.invoke(
+        FunctionName="portfolio-stat-email",
+        InvocationType="Event",
+        Payload=json.dumps(payload)
+    )
+    result = {"status": "triggered", "message": "Portfolio stats email sent"}
+    write_audit_log("send_portfolio_stats_email", result)
+    return result
 
 
 # ----------------------
-# MCP TOOL DEFINITIONS
+# ASGI APP FOR RENDER
 # ----------------------
-def get_tools():
-    return [
-        {
-            "name": "list_ec2_instances",
-            "description": "List all EC2 instances.",
-            "type": "function",
-            "inputSchema": {"type": "object", "properties": {}}
-        },
-        {
-            "name": "create_ec2_instance",
-            "description": "Create a t2.micro EC2 instance.",
-            "type": "function",
-            "inputSchema": {"type": "object", "properties": {}}
-        },
-        {
-            "name": "terminate_ec2_instance",
-            "description": "Terminate an EC2 instance.",
-            "type": "function",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"instance_id": {"type": "string"}},
-                "required": ["instance_id"]
-            }
-        },
-        {
-            "name": "list_s3_buckets",
-            "description": "List S3 buckets.",
-            "type": "function",
-            "inputSchema": {"type": "object", "properties": {}}
-        },
-        {
-            "name": "create_s3_bucket",
-            "description": "Create an S3 bucket.",
-            "type": "function",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"bucket_name": {"type": "string"}},
-                "required": ["bucket_name"]
-            }
-        },
-        {
-            "name": "list_lambda_functions",
-            "description": "List Lambda functions.",
-            "type": "function",
-            "inputSchema": {"type": "object", "properties": {}}
-        },
-        {
-            "name": "list_log_groups",
-            "description": "List CloudWatch log groups.",
-            "type": "function",
-            "inputSchema": {"type": "object", "properties": {}}
-        },
-        {
-            "name": "get_estimated_cost",
-            "description": "Get AWS cost for last 6 months.",
-            "type": "function",
-            "inputSchema": {"type": "object", "properties": {}}
-        },
-        {
-            "name": "list_budgets",
-            "description": "List AWS budgets.",
-            "type": "function",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"account_id": {"type": "string"}}
-            }
-        },
-
-        {
-            "name": "get_profile_stat",
-            "description": "Get profile statistics",
-            "type": "function",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
-        },
-        {
-            "name": "send_portfolio_stats_email",
-            "description": "Send the portfolio status to email.",
-            "type": "function",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-
-        
-
-    ]
-
-
-# ----------------------
-# MCP /tools/list
-# ----------------------
-@app.post("/mcp/tools/list")
-async def tools_list(request: Request):
-    body = await request.json()
-    req_id = body.get("id")
-    method = body.get("method")
-
-    if method != "tools/list":
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "error": {"code": -32601, "message": "Method not found"}
-        }
-
-    tools = get_tools()
-    write_audit_log("tools_list", {"count": len(tools)})
-
-    return {
-        "jsonrpc": "2.0",
-        "id": req_id,
-        "result": {"tools": tools}
-    }
-
-
-# ----------------------
-# MCP /tools/call
-# ----------------------
-@app.post("/mcp/tools/call")
-async def tools_call(request: Request):
-    body = await request.json()
-    req_id = body.get("id")
-    method = body.get("method")
-    print("[tools_call] ",body)
-    if method != "tools/call":
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "error": {"code": -32601, "message": "Method not found"}
-        }
-
-    params = body.get("params", {})
-    name = params.get("name")
-    args = params.get("arguments", {})
-
-    if not name:
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "error": {"code": -32602, "message": "Missing tool name"}
-        }
-
-    try:
-        # ----------------------
-        # TOOL DISPATCH
-        # ----------------------
-        if name == "list_ec2_instances":
-            resp = ec2.describe_instances()
-            instances = []
-            for res in resp["Reservations"]:
-                for i in res["Instances"]:
-                    instances.append({
-                        "instance_id": i["InstanceId"],
-                        "state": i["State"]["Name"],
-                        "type": i["InstanceType"]
-                    })
-            result = {"instances": instances}
-
-        elif name == "create_ec2_instance":
-            resp = ec2.run_instances(
-                ImageId="ami-049442a6cf8319180",
-                InstanceType="t2.micro",
-                MinCount=1,
-                MaxCount=1
-            )
-            result = {"instance_id": resp["Instances"][0]["InstanceId"]}
-
-        elif name == "terminate_ec2_instance":
-            instance_id = args.get("instance_id")
-            if not instance_id:
-                raise ValueError("instance_id is required")
-            ec2.terminate_instances(InstanceIds=[instance_id])
-            result = {"terminated_instance_id": instance_id}
-
-        elif name == "list_s3_buckets":
-            print("---before calling s3----")
-            resp = s3.list_buckets()
-            print("---after  calling s3----",resp)
-            result = {"buckets": [b["Name"] for b in resp["Buckets"]]}
-
-        elif name == "create_s3_bucket":
-            bucket = args.get("bucket_name")
-            if not bucket:
-                raise ValueError("bucket_name is required")
-            s3.create_bucket(Bucket=bucket)
-            result = {"bucket_created": bucket}
-
-        elif name == "list_lambda_functions":
-            resp = lambda_client.list_functions()
-            result = {"functions": [f["FunctionName"] for f in resp["Functions"]]}
-
-        elif name == "list_log_groups":
-            resp = logs.describe_log_groups()
-            result = {"log_groups": [g["logGroupName"] for g in resp["logGroups"]]}
-
-        elif name == "get_estimated_cost":
-            today = datetime.utcnow()
-            start = (today - relativedelta(months=5)).replace(day=1)
-            end = today.replace(day=1) + relativedelta(months=1) - timedelta(days=1)
-            cost = ce.get_cost_and_usage(
-                TimePeriod={
-                    "Start": start.strftime("%Y-%m-%d"),
-                    "End": end.strftime("%Y-%m-%d")
-                },
-                Granularity="MONTHLY",
-                Metrics=["UnblendedCost"]
-            )
-            result = {"cost": convert_datetimes(cost)}
-
-        elif name == "list_budgets":
-            account_id = args.get("account_id")
-            if not account_id:
-                account_id = sts.get_caller_identity()["Account"]
-            resp = budgets.describe_budgets(AccountId=account_id)
-            result = {"budgets": convert_datetimes(resp.get("Budgets", []))}
-
-        elif name == "get_profile_stat":
-            url = "https://zztynrwa31.execute-api.eu-west-1.amazonaws.com/stats"
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            result = response.json()
-
-
-
-        elif name == "send_portfolio_stats_email":
-            payload = {
-                "source": "mcp",
-                "action": "send_portfolio_stats_email",
-                "requested_at": datetime.utcnow().isoformat()
-            }
-
-            lambda_client.invoke(
-                FunctionName="portfolio-stat-email",
-                InvocationType="Event",
-                Payload=json.dumps(payload)
-            )
-
-            result = {
-                "status": "triggered",
-                "message": "Portfolio stats email sent"
-            }
-
-
-
-        else:
-            return {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "error": {"code": -32601, "message": f"Unknown tool: {name}"}
-            }
-
-        write_audit_log(name, result)
-
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {"content": result}
-        }
-
-    except Exception as e:
-        write_audit_log("error", {"tool": name, "error": str(e)})
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "error": {"code": -32000, "message": str(e)}
-        }
+app = mcp.get_asgi_app()
