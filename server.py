@@ -99,7 +99,7 @@ async def mcp_handshake(request: Request):
             "jsonrpc": "2.0",
             "id": req_id,
             "result": {
-                "protocolVersion": "2024-01-01",
+                "protocolVersion": "2025-11-25",
                 "serverInfo": {
                     "name": "aws-mcp-server",
                     "version": "1.0.0"
