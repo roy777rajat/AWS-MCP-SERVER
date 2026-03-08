@@ -1,4 +1,5 @@
 fastapi
+mcp[cli]>=1.0.0
 uvicorn
 boto3
 python-dateutil
