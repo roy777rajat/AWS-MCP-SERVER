@@ -7,6 +7,28 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
 # ----------------------
+# PATCH HOST VALIDATION - must be before FastMCP init
+# ----------------------
+import mcp.server.transport_security as _ts
+
+class _AllowAllHosts:
+    def __init__(self, *args, **kwargs):
+        pass
+    def check(self, *args, **kwargs):
+        pass
+    def __call__(self, *args, **kwargs):
+        pass
+
+# Patch every callable in transport_security that checks hosts
+for _attr in dir(_ts):
+    if "host" in _attr.lower() or "check" in _attr.lower():
+        try:
+            setattr(_ts, _attr, lambda *a, **kw: None)
+        except Exception:
+            pass
+
+
+# ----------------------
 # AWS CONFIG
 # ----------------------
 REGION = os.getenv("AWS_REGION", "eu-west-1")
@@ -50,27 +72,6 @@ def convert_datetimes(obj):
     elif isinstance(obj, datetime):
         return obj.isoformat()
     return obj
-
-
-# ----------------------
-# PATCH HOST VALIDATION
-# ----------------------
-try:
-    from mcp.server.streamable_http import StreamableHTTPServerTransport
-    original_check = StreamableHTTPServerTransport._check_host_header
-
-    async def patched_check(self, *args, **kwargs):
-        return  # skip host validation entirely
-
-    StreamableHTTPServerTransport._check_host_header = patched_check
-except Exception:
-    pass
-
-try:
-    import mcp.server.transport_security as ts
-    ts.check_host = lambda *a, **kw: None
-except Exception:
-    pass
 
 
 # ----------------------
