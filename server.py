@@ -1,4 +1,6 @@
 from mcp.server.fastmcp import FastMCP
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
 import boto3
 import json
 import os
@@ -50,6 +52,18 @@ def convert_datetimes(obj):
     elif isinstance(obj, datetime):
         return obj.isoformat()
     return obj
+
+
+# ----------------------
+# HOST HEADER FIX MIDDLEWARE
+# ----------------------
+class FixHostMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        # Force the host header to match Render's expected hostname
+        headers = dict(request.scope["headers"])
+        headers[b"host"] = b"aws-mcp-server.onrender.com"
+        request.scope["headers"] = list(headers.items())
+        return await call_next(request)
 
 
 # ----------------------
@@ -194,3 +208,4 @@ def send_portfolio_stats_email() -> dict:
 # ASGI APP FOR RENDER
 # ----------------------
 app = mcp.streamable_http_app()
+app.add_middleware(FixHostMiddleware)
