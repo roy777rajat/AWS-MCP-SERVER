@@ -55,7 +55,7 @@ def convert_datetimes(obj):
 # ----------------------
 # MCP SERVER
 # ----------------------
-mcp = FastMCP("aws-mcp-server")
+mcp = FastMCP("aws-mcp-server", stateless_http=True)
 
 
 @mcp.tool()
@@ -193,4 +193,4 @@ def send_portfolio_stats_email() -> dict:
 # ----------------------
 # ASGI APP FOR RENDER
 # ----------------------
-app = mcp.get_asgi_app()
+app = mcp.streamable_http_app()
